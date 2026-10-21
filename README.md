@@ -1,5 +1,6 @@
 # WizForge AI: Intelligent Code Review Platform
 
+[![CI](https://github.com/shijin286/wiz-forge-coding-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/shijin286/wiz-forge-coding-platform/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
