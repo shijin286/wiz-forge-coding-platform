@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app import services
 from app.ai import AIReview, AIReviewError
 
@@ -130,3 +132,38 @@ def test_ai_corrected_code_replaces_static_fix(auth_client, monkeypatch):
     assert detail["fixed_source"] == "ai" and detail["fixed_code"] == fixed
     assert detail["fixes_applied"] == [{"line": None, "rule_id": "AI", "description": "Removed the eval() call"}]
     assert detail["fixed_score"] == 100 and detail["fixes_remaining"] == []
+
+
+def test_login_is_rate_limited(client):
+    for _ in range(10):
+        assert client.post("/api/auth/login", json={"email": "x@example.com", "password": "wrong-pass"}).status_code == 401
+    r = client.post("/api/auth/login", json={"email": "x@example.com", "password": "wrong-pass"})
+    assert r.status_code == 429 and "Retry-After" in r.headers
+
+
+def test_review_submission_is_rate_limited(auth_client):
+    body = {"language": "python", "code": "x = 1\n", "use_ai": False}
+    for _ in range(30):
+        assert auth_client.post("/api/reviews", json=body).status_code == 201
+    assert auth_client.post("/api/reviews", json=body).status_code == 429
+
+
+def test_pdf_report(auth_client, client):
+    code = (Path(__file__).parent / "samples" / "Employee.java").read_text()
+    review = auth_client.post("/api/reviews", json={"title": "payroll/Employee.java", "language": "java",
+                                                    "code": code, "use_ai": False}).json()
+    r = auth_client.get(f"/api/reviews/{review['id']}/report.pdf")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    assert r.content.startswith(b"%PDF") and len(r.content) > 2000
+    assert 'filename="payroll_Employee.java-report.pdf"' in r.headers["content-disposition"]
+
+    other = client.post("/api/auth/register", json={"email": "c@x.com", "name": "C", "password": "password123"}).json()
+    denied = client.get(f"/api/reviews/{review['id']}/report.pdf",
+                        headers={"Authorization": f"Bearer {other['access_token']}"})
+    assert denied.status_code == 404
+
+
+def test_pdf_report_handles_unicode(auth_client):
+    code = 'msg = "naïve café → ✓ 日本"\n# TODO: résumé\n'
+    review = auth_client.post("/api/reviews", json={"language": "python", "code": code, "use_ai": False}).json()
+    assert auth_client.get(f"/api/reviews/{review['id']}/report.pdf").status_code == 200

@@ -1,5 +1,5 @@
-import { Bot, FileUp, Info, Sparkles } from "lucide-react";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Bot, FileUp, Github, Info, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import CodeEditor from "../components/CodeEditor";
 import { ErrorBox, PageHeader } from "../components/ui";
@@ -26,6 +26,9 @@ export default function NewReview() {
   }, []);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showGithub, setShowGithub] = useState(false);
+  const [githubUrl, setGithubUrl] = useState("");
+  const [importing, setImporting] = useState(false);
   // once the user picks a language themselves, detection only suggests instead of switching
   const [languageChosen, setLanguageChosen] = useState(false);
   const [detected, setDetected] = useState<string | null>(null);
@@ -56,6 +59,27 @@ export default function NewReview() {
     chooseLanguage(SAMPLES[language] ? language : "python");
     setTitle(sample.title);
     setCode(sample.code);
+  };
+
+  const importGithub = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setImporting(true);
+    try {
+      const file = await api.importFromGithub(githubUrl);
+      setCode(file.code);
+      if (file.language !== "other") chooseLanguage(file.language);
+      else setLanguageChosen(false);
+      // use the path inside the repository as the title, e.g. src/app.py
+      const path = githubUrl.split(/\/blob\/[^/]+\/|githubusercontent\.com\/[^/]+\/[^/]+\/[^/]+\//)[1];
+      setTitle(path || file.filename);
+      setShowGithub(false);
+      setGithubUrl("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
   };
 
   const onFile = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -89,7 +113,7 @@ export default function NewReview() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="New review" subtitle="Paste code or upload a file. It is analysed, never executed." />
+      <PageHeader title="New review" subtitle="Paste code, upload a file or import one from GitHub. It is analysed, never executed." />
 
       <div className="card mb-4 grid gap-3 p-4 md:grid-cols-[1fr_180px_auto]">
         <input className="input" placeholder="Title, e.g. payment-service/handlers.py" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
@@ -98,10 +122,18 @@ export default function NewReview() {
         </select>
         <div className="flex gap-2">
           <button className="btn-ghost flex-1" onClick={() => fileInput.current?.click()}><FileUp size={15} /> Upload</button>
+          <button className="btn-ghost flex-1" onClick={() => setShowGithub(!showGithub)}><Github size={15} /> GitHub</button>
           <button className="btn-ghost flex-1" onClick={loadSample}><Sparkles size={15} /> Sample</button>
           <input ref={fileInput} type="file" className="hidden" onChange={onFile}
             accept=".py,.js,.jsx,.mjs,.cjs,.ts,.tsx,.java,.c,.h,.cpp,.cc,.cxx,.hpp,.go,.txt" />
         </div>
+        {showGithub && (
+          <form className="flex flex-col gap-2 sm:flex-row md:col-span-3" onSubmit={importGithub}>
+            <input className="input" type="url" required autoFocus value={githubUrl} onChange={(e) => setGithubUrl(e.target.value)}
+              placeholder="https://github.com/owner/repo/blob/main/src/app.py" />
+            <button className="btn-primary shrink-0" disabled={importing}>{importing ? "Importing…" : "Import file"}</button>
+          </form>
+        )}
       </div>
 
       {detected && detected !== language && (

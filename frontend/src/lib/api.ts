@@ -66,5 +66,22 @@ export const api = {
   },
   getReview: (id: number) => request<ReviewDetail>(`/reviews/${id}`),
   deleteReview: (id: number) => request<void>(`/reviews/${id}`, { method: "DELETE" }),
+  downloadReport: async (id: number) => {
+    const res = await fetch(`/api/reviews/${id}/report.pdf`, {
+      headers: { Authorization: `Bearer ${tokenStore.get() ?? ""}` },
+    });
+    if (!res.ok) throw new ApiError(res.status, "Could not create the PDF report");
+    const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? "report.pdf";
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  importFromGithub: (url: string) =>
+    request<{ filename: string; language: string; code: string }>("/import/github", {
+      method: "POST", body: JSON.stringify({ url }),
+    }),
   health: () => request<{ status: string; ai_enabled: boolean; ai_configured: boolean; ai_model: string }>("/health"),
 };

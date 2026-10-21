@@ -13,12 +13,15 @@ from fastapi.testclient import TestClient
 
 from app.database import Base, engine
 from app.main import app
+from app.ratelimit import ALL_LIMITERS
 
 
 @pytest.fixture()
 def client():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    for limiter in ALL_LIMITERS:
+        limiter.reset()
     with TestClient(app) as c:
         yield c
 

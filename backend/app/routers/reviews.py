@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -8,6 +10,8 @@ from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import Review, User
+from ..ratelimit import review_limiter
+from ..report import build_report
 from ..schemas import DetectIn, ReviewCreate, ReviewDetail, ReviewPage
 from ..services import backfill_corrected_code, create_review, finding_counts, run_ai_review, to_summary
 
@@ -47,6 +51,7 @@ def submit_review(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    review_limiter.hit(f"user:{user.id}")
     limit = get_settings().max_code_chars
     if len(data.code) > limit:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"Code exceeds {limit:,} characters")
@@ -86,6 +91,20 @@ def get_review(review_id: int, db: Session = Depends(get_db), user: User = Depen
         backfill_corrected_code(review)
         db.commit()
     return _detail(review)
+
+
+@router.get("/reviews/{review_id}/report.pdf")
+def review_report(review_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    review = _get_owned(db, user, review_id)
+    if review.fixed_code is None:
+        backfill_corrected_code(review)
+        db.commit()
+    safe_name = re.sub(r"[^\w.-]+", "_", review.title).strip("_") or "review"
+    return Response(
+        build_report(review),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}-report.pdf"'},
+    )
 
 
 @router.delete("/reviews/{review_id}", status_code=status.HTTP_204_NO_CONTENT)

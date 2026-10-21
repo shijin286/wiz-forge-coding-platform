@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import User
+from ..ratelimit import auth_limiter, client_ip
 from ..schemas import LoginIn, RegisterIn, TokenOut, UserOut
 from ..security import create_access_token, hash_password, verify_password
 
@@ -16,7 +17,8 @@ def _token_for(user: User) -> TokenOut:
 
 
 @router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-def register(data: RegisterIn, db: Session = Depends(get_db)):
+def register(data: RegisterIn, request: Request, db: Session = Depends(get_db)):
+    auth_limiter.hit(client_ip(request))
     email = data.email.lower()
     if db.scalar(select(User).where(func.lower(User.email) == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")
@@ -28,7 +30,8 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenOut)
-def login(data: LoginIn, db: Session = Depends(get_db)):
+def login(data: LoginIn, request: Request, db: Session = Depends(get_db)):
+    auth_limiter.hit(client_ip(request))
     user = db.scalar(select(User).where(func.lower(User.email) == data.email.lower()))
     if user is None or not verify_password(data.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")

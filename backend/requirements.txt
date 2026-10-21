@@ -8,7 +8,8 @@ email-validator>=2.2
 bcrypt>=4.2
 PyJWT>=2.10
 anthropic>=0.75
+fpdf2>=2.8
+httpx>=0.27
 
 # dev / test
 pytest>=8.3
-httpx>=0.27

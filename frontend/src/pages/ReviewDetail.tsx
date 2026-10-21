@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeft, Bot, CheckCircle2, Cpu, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, CheckCircle2, Cpu, FileDown, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CodeEditor from "../components/CodeEditor";
@@ -19,6 +19,7 @@ export default function ReviewDetail() {
   const [focusLine, setFocusLine] = useState<number | null>(null);
   const [severity, setSeverity] = useState<Severity | "all">("all");
   const [source, setSource] = useState<SourceFilter>("all");
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +48,17 @@ export default function ReviewDetail() {
   if (error) return <ErrorBox message={error} />;
   if (!review) return <Spinner label="Loading review…" />;
 
+  const downloadReport = async () => {
+    setDownloading(true);
+    try {
+      await api.downloadReport(review.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create the PDF report");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const remove = async () => {
     if (!confirm("Delete this review? This cannot be undone.")) return;
     await api.deleteReview(review.id);
@@ -68,7 +80,12 @@ export default function ReviewDetail() {
             <span>{new Date(review.created_at).toLocaleString()}</span>
           </div>
         </div>
-        <button onClick={remove} className="btn-ghost"><Trash2 size={15} /> Delete</button>
+        <div className="flex gap-2">
+          <button onClick={downloadReport} className="btn-ghost" disabled={downloading || review.status !== "completed"}>
+            <FileDown size={15} /> {downloading ? "Preparing…" : "PDF report"}
+          </button>
+          <button onClick={remove} className="btn-ghost"><Trash2 size={15} /> Delete</button>
+        </div>
       </div>
 
       {/* overview */}

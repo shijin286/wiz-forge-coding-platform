@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 
 from .config import get_settings
 from .database import ensure_schema
-from .routers import auth, reviews, stats
+from .routers import auth, imports, reviews, stats
 
 logging.basicConfig(level=logging.INFO)
 
@@ -32,6 +32,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(reviews.router)
 app.include_router(stats.router)
+app.include_router(imports.router)
 
 
 @app.get("/", include_in_schema=False)

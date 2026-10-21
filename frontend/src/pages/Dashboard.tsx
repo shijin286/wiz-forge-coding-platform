@@ -1,6 +1,7 @@
 import { ArrowRight, FilePlus2, Gauge, ListChecks, ShieldAlert } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import ScoreTrend from "../components/ScoreTrend";
 import { ErrorBox, GradePill, PageHeader, Spinner } from "../components/ui";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -64,6 +65,8 @@ export default function Dashboard() {
               value={(stats.by_severity.critical ?? 0) + (stats.by_severity.high ?? 0)}
             />
           </div>
+
+          <ScoreTrend points={stats.score_trend} />
 
           <div className="grid gap-6 lg:grid-cols-5">
             <div className="card p-5 lg:col-span-2">
