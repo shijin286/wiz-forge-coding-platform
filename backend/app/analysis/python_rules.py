@@ -2,6 +2,7 @@
 
 import ast
 import builtins
+import re
 
 from .base import Issue
 from .detect import detect_language
@@ -143,9 +144,15 @@ class _Visitor(ast.NodeVisitor):
                      "A bare except also catches SystemExit and KeyboardInterrupt, hiding real failures.",
                      "Catch the specific exceptions you expect, or at least 'except Exception:'.")
         if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
-            self.add("PY013", "Exception silently swallowed", "medium", "bug", node.lineno,
-                     "The except block only contains 'pass', so errors disappear without a trace.",
-                     "Log the exception, handle it, or let it propagate.")
+            # ignoring a specific, named exception is usually deliberate (Bandit B110 rates it low);
+            # swallowing everything hides real failures
+            broad = node.type is None or (isinstance(node.type, ast.Name) and node.type.id in {"Exception", "BaseException"})
+            self.add("PY013", "Exception silently swallowed", "medium" if broad else "low", "bug", node.lineno,
+                     "The except block only contains 'pass', so "
+                     + ("every error disappears without a trace." if broad
+                        else "these errors are ignored. Make sure that is intended."),
+                     "Log the exception, handle it, or let it propagate"
+                     + ("." if broad else "; if ignoring it is intended, add a comment saying why."))
         self.generic_visit(node)
 
     # ---- comparisons -----------------------------------------------------
@@ -208,6 +215,25 @@ class _Visitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+NOQA = re.compile(r"#\s*noqa(?::\s*[\w, ]*\bF401\b)?(?![:\w])|#\s*noqa:\s*[\w, ]*\bF401\b", re.I)
+
+
+def _has_noqa(lines: list[str], lineno: int) -> bool:
+    """flake8-style '# noqa' / '# noqa: F401' on the import line marks an unused import as intended."""
+    return 0 < lineno <= len(lines) and NOQA.search(lines[lineno - 1]) is not None
+
+
+def _dunder_all(tree: ast.Module) -> set[str]:
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets) and \
+                    isinstance(node.value, (ast.List, ast.Tuple)):
+                names |= {e.value for e in node.value.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    return names
+
+
 def analyze_python(code: str) -> tuple[list[Issue], dict]:
     try:
         tree = ast.parse(code)
@@ -226,10 +252,13 @@ def analyze_python(code: str) -> tuple[list[Issue], dict]:
     v = _Visitor()
     v.visit(tree)
 
+    exported = _dunder_all(tree)
+    lines = code.splitlines()
     for name, line in v.imported.items():
-        if name not in v.used_names:
-            v.add("PY005", f"Unused import '{name}'", "info", "style", line,
-                  f"'{name}' is imported but never used.", "Remove the import.")
+        if name in v.used_names or name in exported or _has_noqa(lines, line):
+            continue  # used, re-exported via __all__, or explicitly marked as intentional
+        v.add("PY005", f"Unused import '{name}'", "info", "style", line,
+              f"'{name}' is imported but never used.", "Remove the import.")
 
     complexities = [f["complexity"] for f in v.functions]
     facts = {

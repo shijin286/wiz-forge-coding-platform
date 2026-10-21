@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     ai_model: str = "claude-opus-5-5"
     ai_effort: str = "medium"
 
+    # optional: raises GitHub's API limit for pull-request reviews from 60 to 5,000 requests/hour
+    github_token: str = ""
+
     cors_origins: str = "http://localhost:5173"
     max_code_chars: int = 100_000
 

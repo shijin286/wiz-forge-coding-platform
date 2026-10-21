@@ -71,3 +71,86 @@ def test_network_error(auth_client, monkeypatch):
 
 def test_requires_login(client):
     assert client.post("/api/import/github", json={"url": "https://github.com/o/r/blob/main/a.py"}).status_code == 401
+
+
+SHA = "a" * 40
+PR = {"title": "Add payment helpers", "head": {"sha": SHA, "repo": {"full_name": "forker/demo"}}}
+FILES = [
+    {"filename": "src/pay.py", "status": "modified"},
+    {"filename": "src/old.py", "status": "removed"},
+    {"filename": "README.md", "status": "modified"},
+    {"filename": "web/app.js", "status": "added"},
+]
+CODE = {
+    "src/pay.py": b"def charge(amount, items=[]):\n    eval(amount)\n    return items\n",
+    "web/app.js": b"var total = 0;\n",
+}
+
+
+@pytest.fixture()
+def fake_pr(monkeypatch):
+    fetched = []
+
+    def api(path):
+        if path.endswith("/pulls/7"):
+            return FakeJSON(200, PR)
+        if path.endswith("/pulls/7/files?per_page=100"):
+            return FakeJSON(200, FILES)
+        if path.endswith("/pulls/8"):
+            return FakeJSON(403, {})
+        return FakeJSON(404, {})
+
+    def raw(url):
+        fetched.append(url)
+        path = url.split(f"/{SHA}/", 1)[1]
+        return FakeResponse(200, CODE[path]) if path in CODE else FakeResponse(404)
+
+    monkeypatch.setattr(imports, "github_api", api)
+    monkeypatch.setattr(imports, "fetch", raw)
+    return fetched
+
+
+class FakeJSON(FakeResponse):
+    def __init__(self, status_code, data):
+        super().__init__(status_code)
+        self._data = data
+
+    def json(self):
+        return self._data
+
+
+def test_pull_request_review(auth_client, fake_pr):
+    r = auth_client.post("/api/import/github-pr", json={"url": "https://github.com/octo/demo/pull/7", "use_ai": False})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["title"] == "Add payment helpers" and body["number"] == 7 and body["repository"] == "octo/demo"
+    files = {f["path"]: f for f in body["files"]}
+    assert files["src/pay.py"]["review_id"] and files["src/pay.py"]["finding_counts"]["critical"] == 1
+    assert files["web/app.js"]["review_id"] and files["web/app.js"]["grade"]
+    assert files["src/old.py"]["skipped"] == "deleted in this pull request"
+    assert files["README.md"]["skipped"] == "not a supported source file"
+    # files are read from the PR's head commit, in the fork it came from
+    assert fake_pr == [f"https://raw.githubusercontent.com/forker/demo/{SHA}/src/pay.py",
+                       f"https://raw.githubusercontent.com/forker/demo/{SHA}/web/app.js"]
+    # each reviewed file becomes a normal review in the history
+    titles = {i["title"] for i in auth_client.get("/api/reviews").json()["items"]}
+    assert titles == {"PR #7: src/pay.py", "PR #7: web/app.js"}
+
+
+def test_pull_request_errors(auth_client, fake_pr):
+    post = lambda url: auth_client.post("/api/import/github-pr", json={"url": url, "use_ai": False})
+    assert post("https://github.com/octo/demo/pull/8").status_code == 429   # GitHub rate limit
+    assert post("https://github.com/octo/demo/pull/9").status_code == 404   # no such PR
+    assert post("https://github.com/octo/demo/issues/7").status_code == 422  # not a PR link
+    assert post("https://evil.com/octo/demo/pull/7").status_code == 422
+    assert fake_pr == []
+
+
+def test_pull_request_file_limit(auth_client, monkeypatch, fake_pr):
+    many = [{"filename": f"src/m{i}.py", "status": "added"} for i in range(imports.MAX_PR_FILES + 3)]
+    monkeypatch.setattr(imports, "github_api",
+                        lambda path: FakeJSON(200, many if path.endswith("per_page=100") else PR))
+    monkeypatch.setattr(imports, "fetch", lambda url: FakeResponse(200, b"x = 1\n"))
+    files = auth_client.post("/api/import/github-pr", json={"url": "https://github.com/o/r/pull/1", "use_ai": False}).json()["files"]
+    assert sum(1 for f in files if f["review_id"]) == imports.MAX_PR_FILES
+    assert sum(1 for f in files if f["skipped"]) == 3

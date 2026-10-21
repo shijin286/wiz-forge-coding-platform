@@ -1,11 +1,12 @@
-import { Bot, FileUp, Github, Info, Sparkles } from "lucide-react";
+import { Bot, FileUp, GitPullRequest, Github, Info, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import CodeEditor from "../components/CodeEditor";
-import { ErrorBox, PageHeader } from "../components/ui";
+import { ErrorBox, GradePill, PageHeader } from "../components/ui";
 import { api } from "../lib/api";
-import { LANGUAGE_LABEL, languageFromFilename } from "../lib/format";
+import { LANGUAGE_LABEL, SEVERITIES, SEVERITY_STYLE, languageFromFilename } from "../lib/format";
 import { SAMPLES } from "../lib/samples";
+import type { PullRequestResult } from "../lib/types";
 
 const MAX_CHARS = 100_000;
 
@@ -29,6 +30,7 @@ export default function NewReview() {
   const [showGithub, setShowGithub] = useState(false);
   const [githubUrl, setGithubUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const [prResult, setPrResult] = useState<PullRequestResult | null>(null);
   // once the user picks a language themselves, detection only suggests instead of switching
   const [languageChosen, setLanguageChosen] = useState(false);
   const [detected, setDetected] = useState<string | null>(null);
@@ -66,6 +68,13 @@ export default function NewReview() {
     setError("");
     setImporting(true);
     try {
+      if (/\/pull\/\d+/.test(githubUrl)) {
+        // a pull request: every changed source file is reviewed on the server
+        setPrResult(await api.reviewPullRequest(githubUrl, useAI));
+        setShowGithub(false);
+        setGithubUrl("");
+        return;
+      }
       const file = await api.importFromGithub(githubUrl);
       setCode(file.code);
       if (file.language !== "other") chooseLanguage(file.language);
@@ -113,7 +122,7 @@ export default function NewReview() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="New review" subtitle="Paste code, upload a file or import one from GitHub. It is analysed, never executed." />
+      <PageHeader title="New review" subtitle="Paste code, upload a file, or import a file or a whole pull request from GitHub. Code is analysed, never executed." />
 
       <div className="card mb-4 grid gap-3 p-4 md:grid-cols-[1fr_180px_auto]">
         <input className="input" placeholder="Title, e.g. payment-service/handlers.py" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
@@ -130,11 +139,54 @@ export default function NewReview() {
         {showGithub && (
           <form className="flex flex-col gap-2 sm:flex-row md:col-span-3" onSubmit={importGithub}>
             <input className="input" type="url" required autoFocus value={githubUrl} onChange={(e) => setGithubUrl(e.target.value)}
-              placeholder="https://github.com/owner/repo/blob/main/src/app.py" />
-            <button className="btn-primary shrink-0" disabled={importing}>{importing ? "Importing…" : "Import file"}</button>
+              placeholder="A file (…/blob/main/src/app.py) or a pull request (…/pull/42)" />
+            <button className="btn-primary shrink-0" disabled={importing}>
+              {importing ? (/\/pull\/\d+/.test(githubUrl) ? "Reviewing pull request…" : "Importing…")
+                : /\/pull\/\d+/.test(githubUrl) ? "Review pull request" : "Import file"}
+            </button>
           </form>
         )}
       </div>
+
+      {prResult && (
+        <div className="card mb-4 p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-xs text-ink-400">
+                <GitPullRequest size={14} className="text-brand-400" /> {prResult.repository} #{prResult.number}
+              </div>
+              <h2 className="truncate font-medium">{prResult.title}</h2>
+              <p className="text-xs text-ink-400">
+                {prResult.files.filter((f) => f.review_id).length} of {prResult.files.length} changed files reviewed
+              </p>
+            </div>
+            <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setPrResult(null)}>Close</button>
+          </div>
+          <ul className="divide-y divide-ink-700/70">
+            {prResult.files.map((f) => (
+              <li key={f.path} className="flex items-center justify-between gap-3 py-2 text-sm">
+                {f.review_id ? (
+                  <Link to={`/review/${f.review_id}`} className="min-w-0 truncate font-mono text-xs hover:text-brand-400">{f.path}</Link>
+                ) : (
+                  <span className="min-w-0 truncate font-mono text-xs text-ink-400">{f.path}</span>
+                )}
+                {f.review_id && f.grade != null && f.quality_score != null ? (
+                  <span className="flex shrink-0 items-center gap-2">
+                    {SEVERITIES.filter((s) => f.finding_counts[s]).slice(0, 3).map((s) => (
+                      <span key={s} className={`rounded px-1.5 text-xs tabular-nums ${SEVERITY_STYLE[s].bg} ${SEVERITY_STYLE[s].text}`}>
+                        {f.finding_counts[s]}
+                      </span>
+                    ))}
+                    <GradePill grade={f.grade} score={f.quality_score} />
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-xs text-ink-400">{f.skipped}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {detected && detected !== language && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sev-medium/30 bg-sev-medium/10 px-3 py-2 text-sm text-sev-medium">

@@ -68,3 +68,17 @@ export interface Stats {
   score_trend: { id: number; title: string; score: number; created_at: string }[];
   recent: ReviewSummary[];
 }
+
+export interface PullRequestResult {
+  title: string;
+  number: number;
+  repository: string;
+  files: {
+    path: string;
+    review_id: number | null;
+    quality_score: number | null;
+    grade: string | null;
+    finding_counts: Partial<Record<Severity, number>>;
+    skipped: string | null;
+  }[];
+}

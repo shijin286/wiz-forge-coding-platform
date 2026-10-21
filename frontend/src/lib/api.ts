@@ -1,4 +1,4 @@
-import type { ReviewDetail, ReviewSummary, Stats, User } from "./types";
+import type { PullRequestResult, ReviewDetail, ReviewSummary, Stats, User } from "./types";
 
 const TOKEN_KEY = "wizforge.token";
 
@@ -82,6 +82,8 @@ export const api = {
   generateTests: (id: number, useAI: boolean) =>
     request<{ source: "static" | "ai"; framework: string; filename: string; code: string; notes: string; count: number | null }>(
       `/reviews/${id}/tests`, { method: "POST", body: JSON.stringify({ use_ai: useAI }) }),
+  reviewPullRequest: (url: string, useAI: boolean) =>
+    request<PullRequestResult>("/import/github-pr", { method: "POST", body: JSON.stringify({ url, use_ai: useAI }) }),
   importFromGithub: (url: string) =>
     request<{ filename: string; language: string; code: string }>("/import/github", {
       method: "POST", body: JSON.stringify({ url }),

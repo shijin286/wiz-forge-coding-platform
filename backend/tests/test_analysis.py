@@ -100,3 +100,22 @@ def test_secret_in_compound_name():
     ids = rule_ids('SECRET_KEY = "super-secret-signing-key"\nDB_PASSWORD = "hunter2-prod"\n', "python")
     assert "SEC001" in ids
     assert len([i for i in run_static_analysis('DB_PASSWORD = "hunter2-prod"\n', "python").issues if i.rule_id == "SEC001"]) == 1
+
+
+def test_noqa_and_dunder_all_mark_imports_as_intended():
+    code = ("from ._internal import (  # noqa: F401\n    HEADER_VALIDATORS,\n)\n"
+            "import os  # noqa\nimport sys\nfrom json import dumps\n__all__ = ['dumps']\n")
+    unused = {i.title for i in run_static_analysis(code, "python").issues if i.rule_id == "PY005"}
+    assert unused == {"Unused import 'sys'"}
+
+
+def test_noqa_for_another_code_does_not_hide_unused_import():
+    unused = [i for i in run_static_analysis("import os  # noqa: E501\n", "python").issues if i.rule_id == "PY005"]
+    assert len(unused) == 1
+
+
+def test_swallowed_specific_exception_is_low_broad_is_medium():
+    code = ("try:\n    x = 1\nexcept (KeyError, ValueError):\n    pass\n"
+            "try:\n    y = 2\nexcept Exception:\n    pass\n")
+    sev = {i.line: i.severity for i in run_static_analysis(code, "python").issues if i.rule_id == "PY013"}
+    assert sev == {3: "low", 7: "medium"}
