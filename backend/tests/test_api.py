@@ -167,3 +167,31 @@ def test_pdf_report_handles_unicode(auth_client):
     code = 'msg = "naïve café → ✓ 日本"\n# TODO: résumé\n'
     review = auth_client.post("/api/reviews", json={"language": "python", "code": code, "use_ai": False}).json()
     assert auth_client.get(f"/api/reviews/{review['id']}/report.pdf").status_code == 200
+
+
+def test_generate_tests_endpoint(auth_client):
+    code = "def add(a, b):\n    return a + b\n"
+    review = auth_client.post("/api/reviews", json={"title": "calc.py", "language": "python", "code": code,
+                                                    "use_ai": False}).json()
+    r = auth_client.post(f"/api/reviews/{review['id']}/tests", json={"use_ai": False})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "static" and body["framework"] == "pytest" and body["count"] == 1
+    assert "from calc import add" in body["code"]
+
+    c_review = auth_client.post("/api/reviews", json={"language": "c", "code": "int main(void){return 0;}\n",
+                                                      "use_ai": False}).json()
+    r = auth_client.post(f"/api/reviews/{c_review['id']}/tests", json={"use_ai": False})
+    assert r.status_code == 422 and "Python, JavaScript" in r.json()["detail"]
+
+
+def test_generate_tests_with_ai(auth_client, monkeypatch):
+    from app.routers import reviews as reviews_router
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(reviews_router, "generate_tests_with_claude", lambda code, lang, module: {
+        "framework": "pytest", "filename": "test_calc.py", "code": "def test_add():\n    assert add(1, 2) == 3\n",
+        "notes": "Covers addition."})
+    review = auth_client.post("/api/reviews", json={"title": "calc.py", "language": "python",
+                                                    "code": "def add(a, b):\n    return a + b\n", "use_ai": False}).json()
+    body = auth_client.post(f"/api/reviews/{review['id']}/tests", json={"use_ai": True}).json()
+    assert body["source"] == "ai" and "assert add(1, 2) == 3" in body["code"]

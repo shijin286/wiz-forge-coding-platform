@@ -79,6 +79,9 @@ export const api = {
     a.click();
     URL.revokeObjectURL(url);
   },
+  generateTests: (id: number, useAI: boolean) =>
+    request<{ source: "static" | "ai"; framework: string; filename: string; code: string; notes: string; count: number | null }>(
+      `/reviews/${id}/tests`, { method: "POST", body: JSON.stringify({ use_ai: useAI }) }),
   importFromGithub: (url: string) =>
     request<{ filename: string; language: string; code: string }>("/import/github", {
       method: "POST", body: JSON.stringify({ url }),

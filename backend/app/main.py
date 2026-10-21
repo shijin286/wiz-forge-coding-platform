@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from .config import get_settings
-from .database import ensure_schema
+from .database import run_migrations
 from .routers import auth, imports, reviews, stats
 
 logging.basicConfig(level=logging.INFO)
@@ -14,8 +14,8 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Simple schema bootstrap for development. Use Alembic migrations once the schema stabilises.
-    ensure_schema()
+    # bring the database schema up to date (Alembic)
+    run_migrations()
     yield
 
 

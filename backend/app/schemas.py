@@ -111,3 +111,16 @@ class StatsOut(BaseModel):
     by_language: dict[str, int]
     score_trend: list[TrendPoint]
     recent: list[ReviewSummary]
+
+
+class TestsIn(BaseModel):
+    use_ai: bool = True
+
+
+class TestsOut(BaseModel):
+    source: Literal["static", "ai"]
+    framework: str
+    filename: str
+    code: str
+    notes: str
+    count: int | None = None

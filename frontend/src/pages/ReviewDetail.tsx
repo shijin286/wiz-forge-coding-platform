@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CodeEditor from "../components/CodeEditor";
 import CorrectedCode from "../components/CorrectedCode";
+import UnitTests from "../components/UnitTests";
 import FindingCard from "../components/FindingCard";
 import { ErrorBox, ScoreRing, Spinner, Tag } from "../components/ui";
 import { api } from "../lib/api";
@@ -179,7 +180,10 @@ export default function ReviewDetail() {
       </div>
 
       {review.status === "completed" ? (
-        <CorrectedCode review={review} />
+        <>
+          <CorrectedCode review={review} />
+          <UnitTests review={review} />
+        </>
       ) : (
         <div className="mt-8"><Spinner label="Corrected code will appear here when the AI review finishes…" /></div>
       )}

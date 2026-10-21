@@ -5,14 +5,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..analysis import SUPPORTED_LANGUAGES
+from ..ai import AIReviewError, generate_tests_with_claude
 from ..analysis.detect import detect_language
+from ..analysis.testgen import generate_test_skeleton
 from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import Review, User
 from ..ratelimit import review_limiter
 from ..report import build_report
-from ..schemas import DetectIn, ReviewCreate, ReviewDetail, ReviewPage
+from ..schemas import DetectIn, ReviewCreate, ReviewDetail, ReviewPage, TestsIn, TestsOut
 from ..services import backfill_corrected_code, create_review, finding_counts, run_ai_review, to_summary
 
 router = APIRouter(prefix="/api", tags=["reviews"])
@@ -91,6 +93,35 @@ def get_review(review_id: int, db: Session = Depends(get_db), user: User = Depen
         backfill_corrected_code(review)
         db.commit()
     return _detail(review)
+
+
+@router.post("/reviews/{review_id}/tests", response_model=TestsOut)
+def generate_tests(review_id: int, data: TestsIn, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    """Unit tests for the reviewed code: an instant skeleton, or complete tests from Claude."""
+    review_limiter.hit(f"user:{user.id}")
+    review = _get_owned(db, user, review_id)
+    module = re.sub(r"\.[^./\\]+$", "", review.title.replace("\\", "/")).strip("/") or "module"
+
+    if data.use_ai and get_settings().ai_configured:
+        try:
+            result = generate_tests_with_claude(review.code, review.language, module)
+        except AIReviewError as e:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+        return TestsOut(source="ai", framework=result["framework"], filename=result["filename"],
+                        code=result["code"], notes=result["notes"], count=None)
+
+    skeleton = generate_test_skeleton(review.code, review.language, review.title)
+    if skeleton is None:
+        reason = ("No public functions or methods were found to test."
+                  if review.language in ("python", "javascript", "typescript", "java", "go")
+                  else "Test skeletons are available for Python, JavaScript, TypeScript, Java and Go.")
+        hint = "" if get_settings().ai_configured else " Add ANTHROPIC_API_KEY to generate full tests with Claude."
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, reason + hint)
+    return TestsOut(source="static", framework=skeleton.framework, filename=skeleton.filename,
+                    code=skeleton.code, count=skeleton.count,
+                    notes=f"{skeleton.count} test stubs generated from the public API. Fill in the inputs and "
+                          "expected values marked TODO.")
 
 
 @router.get("/reviews/{review_id}/report.pdf")
